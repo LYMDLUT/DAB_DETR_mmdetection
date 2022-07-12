@@ -56,7 +56,7 @@ class DABDETRHead(AnchorFreeHead):
                  num_reg_fcs=2,
                  transformer=None,
                  sync_cls_avg_factor=False,
-                 iter_update=True,
+                 #iter_update=True,
                  query_dim=2,
                  bbox_embed_diff_each_layer=False,
                  random_refpoints_xy=False,
@@ -139,7 +139,7 @@ class DABDETRHead(AnchorFreeHead):
         # setting query dim
         self.query_dim = query_dim
         assert query_dim in [2, 4]
-        self.iter_update = iter_update
+        #self.iter_update = iter_update
         self.random_refpoints_xy = random_refpoints_xy
 
 

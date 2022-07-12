@@ -530,7 +530,7 @@ class DABDetrTransformerEncoder(TransformerLayerSequence):
 
 
 @TRANSFORMER_LAYER_SEQUENCE.register_module()
-class CDetrTransformerDecoder(TransformerLayerSequence):
+class DABDetrTransformerDecoder(TransformerLayerSequence):
     """Implements the decoder in DETR transformer.
 
     Args:
@@ -546,7 +546,7 @@ class CDetrTransformerDecoder(TransformerLayerSequence):
                  d_model=256,
                  **kwargs):
 
-        super(CDetrTransformerDecoder, self).__init__(*args, **kwargs)
+        super(DABDetrTransformerDecoder, self).__init__(*args, **kwargs)
         self.return_intermediate = return_intermediate
         if post_norm_cfg is not None:
             self.post_norm = build_norm_layer(post_norm_cfg,
@@ -601,7 +601,7 @@ class CDetrTransformerDecoder(TransformerLayerSequence):
         return torch.stack(intermediate), reference_points
 
 @TRANSFORMER_LAYER.register_module()
-class CDetrTransformerDecoderLayer(BaseTransformerLayer):
+class DABDetrTransformerDecoderLayer(BaseTransformerLayer):
     """Implements decoder layer in DETR transformer.
 
     Args:
@@ -632,7 +632,7 @@ class CDetrTransformerDecoderLayer(BaseTransformerLayer):
                  norm_cfg=dict(type='LN'),
                  ffn_num_fcs=2,
                  **kwargs):
-        super(CDetrTransformerDecoderLayer, self).__init__(
+        super(DABDetrTransformerDecoderLayer, self).__init__(
             attn_cfgs=attn_cfgs,
             feedforward_channels=feedforward_channels,
             ffn_dropout=ffn_dropout,
@@ -738,7 +738,7 @@ class DABTransformer(BaseModule):
             Defaults to None.
     """
 
-    def __init__(self, encoder=None, decoder=None, init_cfg=None):
+    def __init__(self, keep_query_pos,encoder=None, decoder=None, init_cfg=None):
         super(DABTransformer, self).__init__(init_cfg=init_cfg)
         self.encoder = build_transformer_layer_sequence(encoder)
         self.decoder = build_transformer_layer_sequence(decoder)

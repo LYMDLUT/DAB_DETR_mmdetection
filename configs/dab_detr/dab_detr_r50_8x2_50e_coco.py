@@ -16,16 +16,25 @@ model = dict(
     bbox_head=dict(
         type='DABDETRHead',
         num_query=300,
+        query_dim=2,
+        random_refpoints_xy=False,
+        bbox_embed_diff_each_layer=False,
         num_classes=80,
         in_channels=2048,
         transformer=dict(
             type='DABTransformer',
+            keep_query_pos=False,
+            #query_scale_type='cond_elewise',
+            #num_patterns=0,
+            #modulate_hw_attn=True,
+            #bbox_embed_diff_each_layer=False,
             encoder=dict(
                 type='DABDetrTransformerEncoder',
                 num_layers=6,
                 d_model=256,
                 transformerlayers=dict(
                     type='BaseTransformerLayer',
+                    act_cfg=dict(type='PReLU', inplace=True),
                     attn_cfgs=[
                         dict(
                             type='MultiheadAttention',
@@ -37,12 +46,13 @@ model = dict(
                     ffn_dropout=0.1,
                     operation_order=('self_attn', 'norm', 'ffn', 'norm'))),
             decoder=dict(
-                type='CDetrTransformerDecoder',
+                type='DABDetrTransformerDecoder',
                 return_intermediate=True,
                 num_layers=6,
                 d_model=256,
                 transformerlayers=dict(
-                    type='CDetrTransformerDecoderLayer',
+                    type='DABDetrTransformerDecoderLayer',
+                    act_cfg=dict(type='PReLU', inplace=True),
                     attn_cfgs=[
                         dict(
                         type='FMultiheadAttention',
@@ -67,12 +77,6 @@ model = dict(
             gamma=2.0,
             alpha=0.25,
             loss_weight=2.0),
-        # loss_cls=dict(
-        #             type='CrossEntropyLoss',
-        #             bg_cls_weight=0.1,
-        #             use_sigmoid=False,
-        #             loss_weight=1.0,
-        #             class_weight=1.0),
         loss_bbox=dict(type='L1Loss', loss_weight=5.0),
         loss_iou=dict(type='GIoULoss', loss_weight=2.0)),
     # training and testing settings
@@ -80,7 +84,6 @@ model = dict(
         assigner=dict(
             type='HungarianAssigner',
             cls_cost=dict(type='FocalLossCost', weight=2.0),
-            #cls_cost=dict(type='ClassificationCost', weight=1.),
             reg_cost=dict(type='BBoxL1Cost', weight=5.0, box_format='xywh'),
             iou_cost=dict(type='IoUCost', iou_mode='giou', weight=2.0))),
     test_cfg=dict(max_per_img=100))
