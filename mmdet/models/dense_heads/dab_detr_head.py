@@ -56,6 +56,10 @@ class DABDETRHead(AnchorFreeHead):
                  num_reg_fcs=2,
                  transformer=None,
                  sync_cls_avg_factor=False,
+                 iter_update=True,
+                 query_dim=2,
+                 bbox_embed_diff_each_layer=False,
+                 random_refpoints_xy=False,
                  positional_encoding=dict(
                      type='SinePositionalEncoding',
                      num_feats=128,
@@ -130,6 +134,17 @@ class DABDETRHead(AnchorFreeHead):
         self.loss_cls = build_loss(loss_cls)
         self.loss_bbox = build_loss(loss_bbox)
         self.loss_iou = build_loss(loss_iou)
+        #########################################################
+        self.bbox_embed_diff_each_layer = bbox_embed_diff_each_layer
+        # setting query dim
+        self.query_dim = query_dim
+        assert query_dim in [2, 4]
+        self.iter_update = iter_update
+        self.random_refpoints_xy = random_refpoints_xy
+
+
+        ########################################################
+
 
         if self.loss_cls.use_sigmoid:
             self.cls_out_channels = num_classes
@@ -154,15 +169,31 @@ class DABDETRHead(AnchorFreeHead):
         self.input_proj = Conv2d(
             self.in_channels, self.embed_dims, kernel_size=1)
         self.fc_cls = Linear(self.embed_dims, self.cls_out_channels)
-        self.reg_ffn = FFN(
-            self.embed_dims,
-            self.embed_dims,
-            self.num_reg_fcs,
-            self.act_cfg,
-            dropout=0.0,
-            add_residual=False)
-        self.fc_reg = Linear(self.embed_dims, 4)
-        self.query_embedding = nn.Embedding(self.num_query, self.embed_dims)
+        if self.bbox_embed_diff_each_layer:
+            self.reg_ffn = nn.ModuleList([FFN(
+                self.embed_dims,
+                self.embed_dims,
+                self.num_reg_fcs,
+                self.act_cfg,
+                dropout=0.0,
+                add_residual=False) for _ in range(6)])
+            self.fc_reg =nn.ModuleList([Linear(self.embed_dims, 4) for _ in range(6)])
+        else:
+            self.reg_ffn = FFN(
+                self.embed_dims,
+                self.embed_dims,
+                self.num_reg_fcs,
+                self.act_cfg,
+                dropout=0.0,
+                add_residual=False)
+            self.fc_reg = Linear(self.embed_dims, 4)
+        #self.refpoint_embed = nn.Embedding(self.num_query, self.query_dim)
+        self.refpoint_embed = nn.Embedding(self.num_query, self.embed_dims)
+        if self.random_refpoints_xy:
+            # import ipdb; ipdb.set_trace()
+            self.refpoint_embed.weight.data[:, :2].uniform_(0, 1)
+            self.refpoint_embed.weight.data[:, :2] = inverse_sigmoid(self.refpoint_embed.weight.data[:, :2])
+            self.refpoint_embed.weight.data[:, :2].requires_grad = False
 
     def init_weights(self):
         """Initialize weights of the transformer head."""
@@ -259,17 +290,30 @@ class DABDETRHead(AnchorFreeHead):
         # position encoding
         pos_embed = self.positional_encoding(masks)  # [bs, embed_dim, h, w]
         # outs_dec: [nb_dec, bs, num_query, embed_dim]
-        outs_dec, _, reference = self.transformer(x, masks, self.query_embedding.weight,
+        embedweight = self.refpoint_embed.weight
+        outs_dec, _, reference = self.transformer(x, masks, embedweight,
                                        pos_embed)
         ##################
         reference_before_sigmoid = inverse_sigmoid(reference, 1e-3)
         outputs_coords = []
-        for lvl in range(outs_dec.shape[0]):
-            tmp = self.fc_reg(self.activate(self.reg_ffn(outs_dec[lvl])))
-            tmp[..., :2] += reference_before_sigmoid
+        if not self.bbox_embed_diff_each_layer:
+            # for lvl in range(outs_dec.shape[0]):
+            #     tmp = self.fc_reg(self.activate(self.reg_ffn(outs_dec[lvl])))
+            #     tmp[..., :self.query_dim] += reference_before_sigmoid
+            #     outputs_coord = tmp.sigmoid()
+            #     outputs_coords.append(outputs_coord)
+            # outputs_coord = torch.stack(outputs_coords)
+            #
+            tmp = self.fc_reg(self.activate(self.reg_ffn(outs_dec)))
+            tmp[..., :self.query_dim] += reference_before_sigmoid
             outputs_coord = tmp.sigmoid()
-            outputs_coords.append(outputs_coord)
-        outputs_coord = torch.stack(outputs_coords)
+        else:
+            for lvl in range(outs_dec.shape[0]):
+                tmp = self.fc_reg[lvl](self.activate(self.reg_ffn[lvl](outs_dec[lvl])))
+                tmp[..., :self.query_dim] += reference_before_sigmoid
+                outputs_coord = tmp.sigmoid()
+                outputs_coords.append(outputs_coord)
+            outputs_coord = torch.stack(outputs_coords)
         ########################
         all_cls_scores = self.fc_cls(outs_dec)
         all_bbox_preds = outputs_coord
