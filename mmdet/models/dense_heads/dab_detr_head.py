@@ -362,7 +362,7 @@ class DABDETRHead(AnchorFreeHead):
         ]
         img_metas_list = [img_metas for _ in range(num_dec_layers)]
 
-        losses_cls, losses_bbox, losses_iou = multi_apply(
+        losses_cls, losses_bbox, losses_iou , losses_bbox_xy, losses_bbox_hw = multi_apply(
             self.loss_single, all_cls_scores, all_bbox_preds,
             all_gt_bboxes_list, all_gt_labels_list, img_metas_list,
             all_gt_bboxes_ignore_list)
@@ -372,18 +372,17 @@ class DABDETRHead(AnchorFreeHead):
         loss_dict['loss_cls'] = losses_cls[-1]
         loss_dict['loss_bbox'] = losses_bbox[-1]
         loss_dict['loss_iou'] = losses_iou[-1]
-        # calculate the x,y and h,w loss
-        with torch.no_grad():
-            loss_dict['loss_xy'] = loss_dict[..., :2].sum()
-            loss_dict['loss_hw'] = loss_dict[..., 2:].sum()
+        loss_dict['loss_xy'] = losses_bbox_xy[-1]
+        loss_dict['loss_hw'] = losses_bbox_hw[-1]
         # loss from other decoder layers
         num_dec_layer = 0
-        for loss_cls_i, loss_bbox_i, loss_iou_i in zip(losses_cls[:-1],
-                                                       losses_bbox[:-1],
-                                                       losses_iou[:-1]):
+        for loss_cls_i, loss_bbox_i, loss_iou_i ,loss_bbox_xy_i, loss_bbox_hw_i in zip(losses_cls[:-1],
+                                                       losses_bbox[:-1],losses_iou[:-1],losses_bbox_xy[:-1],losses_bbox_hw[:-1]):
             loss_dict[f'd{num_dec_layer}.loss_cls'] = loss_cls_i
             loss_dict[f'd{num_dec_layer}.loss_bbox'] = loss_bbox_i
             loss_dict[f'd{num_dec_layer}.loss_iou'] = loss_iou_i
+            loss_dict[f'd{num_dec_layer}.loss_bbox_xy'] = loss_bbox_xy_i
+            loss_dict[f'd{num_dec_layer}.loss_bbox_hw'] = loss_bbox_hw_i
             num_dec_layer += 1
         return loss_dict
 
@@ -470,7 +469,12 @@ class DABDETRHead(AnchorFreeHead):
         # regression L1 loss
         loss_bbox = self.loss_bbox(
             bbox_preds, bbox_targets, bbox_weights, avg_factor=num_total_pos)
-        return loss_cls, loss_bbox, loss_iou
+        loss_bbox_xy = self.loss_bbox(
+            bbox_preds[..., :2], bbox_targets[..., :2], bbox_weights[..., :2], avg_factor=num_total_pos)
+        loss_bbox_hw = self.loss_bbox(
+            bbox_preds[..., 2:], bbox_targets[..., 2:], bbox_weights[..., 2:], avg_factor=num_total_pos)
+
+        return loss_cls, loss_bbox, loss_iou , loss_bbox_xy, loss_bbox_hw
 
     def get_targets(self,
                     cls_scores_list,
