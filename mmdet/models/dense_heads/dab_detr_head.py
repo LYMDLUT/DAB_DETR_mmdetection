@@ -202,7 +202,9 @@ class DABDETRHead(AnchorFreeHead):
         if self.loss_cls.use_sigmoid:
             bias_init = bias_init_with_prob(0.01)
             nn.init.constant_(self.fc_cls.bias, bias_init)
-
+        # if self.iter_update:
+        #     self.transformer.decoder.reg_ffn = self.reg_ffn
+        #     self.transformer.decoder.fc_reg = self.fc_reg
     def _load_from_state_dict(self, state_dict, prefix, local_metadata, strict,
                               missing_keys, unexpected_keys, error_msgs):
         """load checkpoints."""
@@ -297,13 +299,6 @@ class DABDETRHead(AnchorFreeHead):
         reference_before_sigmoid = inverse_sigmoid(reference, 1e-3)
         outputs_coords = []
         if not self.bbox_embed_diff_each_layer:
-            # for lvl in range(outs_dec.shape[0]):
-            #     tmp = self.fc_reg(self.activate(self.reg_ffn(outs_dec[lvl])))
-            #     tmp[..., :self.query_dim] += reference_before_sigmoid
-            #     outputs_coord = tmp.sigmoid()
-            #     outputs_coords.append(outputs_coord)
-            # outputs_coord = torch.stack(outputs_coords)
-            #
             tmp = self.fc_reg(self.activate(self.reg_ffn(outs_dec)))
             tmp[..., :self.query_dim] += reference_before_sigmoid
             outputs_coord = tmp.sigmoid()
@@ -377,6 +372,10 @@ class DABDETRHead(AnchorFreeHead):
         loss_dict['loss_cls'] = losses_cls[-1]
         loss_dict['loss_bbox'] = losses_bbox[-1]
         loss_dict['loss_iou'] = losses_iou[-1]
+        # calculate the x,y and h,w loss
+        with torch.no_grad():
+            loss_dict['loss_xy'] = loss_dict[..., :2].sum()
+            loss_dict['loss_hw'] = loss_dict[..., 2:].sum()
         # loss from other decoder layers
         num_dec_layer = 0
         for loss_cls_i, loss_bbox_i, loss_iou_i in zip(losses_cls[:-1],
