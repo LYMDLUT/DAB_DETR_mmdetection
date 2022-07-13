@@ -141,11 +141,7 @@ class DABDETRHead(AnchorFreeHead):
         assert query_dim in [2, 4]
         #self.iter_update = iter_update
         self.random_refpoints_xy = random_refpoints_xy
-
-
         ########################################################
-
-
         if self.loss_cls.use_sigmoid:
             self.cls_out_channels = num_classes
         else:
@@ -187,8 +183,8 @@ class DABDETRHead(AnchorFreeHead):
                 dropout=0.0,
                 add_residual=False)
             self.fc_reg = Linear(self.embed_dims, 4)
-        #self.refpoint_embed = nn.Embedding(self.num_query, self.query_dim)
-        self.refpoint_embed = nn.Embedding(self.num_query, self.embed_dims)
+        self.refpoint_embed = nn.Embedding(self.num_query, self.query_dim)
+        #self.refpoint_embed = nn.Embedding(self.num_query, self.embed_dims)
         if self.random_refpoints_xy:
             # import ipdb; ipdb.set_trace()
             self.refpoint_embed.weight.data[:, :2].uniform_(0, 1)

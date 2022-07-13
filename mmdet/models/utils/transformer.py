@@ -544,9 +544,14 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
                  post_norm_cfg=dict(type='LN'),
                  return_intermediate=False,
                  d_model=256,
+                 keep_query_pos=False,
+                 query_scale_type='cond_elewise',
+                 modulate_hw_attn=True,
+                 bbox_embed_diff_each_layer=False,
                  **kwargs):
 
         super(DABDetrTransformerDecoder, self).__init__(*args, **kwargs)
+        assert query_scale_type in ['cond_elewise', 'cond_scalar', 'fix_elewise']
         self.return_intermediate = return_intermediate
         if post_norm_cfg is not None:
             self.post_norm = build_norm_layer(post_norm_cfg,
@@ -738,11 +743,17 @@ class DABTransformer(BaseModule):
             Defaults to None.
     """
 
-    def __init__(self, keep_query_pos,encoder=None, decoder=None, init_cfg=None):
+    def __init__(self, d_model, num_patterns, encoder=None, decoder=None, init_cfg=None):
         super(DABTransformer, self).__init__(init_cfg=init_cfg)
         self.encoder = build_transformer_layer_sequence(encoder)
         self.decoder = build_transformer_layer_sequence(decoder)
         self.embed_dims = self.encoder.embed_dims
+        self.num_patterns = num_patterns
+        if not isinstance(num_patterns, int):
+            Warning("num_patterns should be int but {}".format(type(num_patterns)))
+            self.num_patterns = 0
+        if self.num_patterns > 0:
+            self.patterns = nn.Embedding(self.num_patterns, d_model)
 
     def init_weights(self):
         # follow the official DETR to init parameters
@@ -751,7 +762,7 @@ class DABTransformer(BaseModule):
                 xavier_init(m, distribution='uniform')
         self._is_init = True
 
-    def forward(self, x, mask, query_embed, pos_embed):
+    def forward(self, x, mask, refpoint_embed, pos_embed):
         """Forward function for `Transformer`.
 
         Args:
@@ -778,7 +789,7 @@ class DABTransformer(BaseModule):
         # use `view` instead of `flatten` for dynamically exporting to ONNX
         x = x.view(bs, c, -1).permute(2, 0, 1)  # [bs, c, h, w] -> [h*w, bs, c]
         pos_embed = pos_embed.view(bs, c, -1).permute(2, 0, 1)
-        query_embed = query_embed.unsqueeze(1).repeat(
+        refpoint_embed = refpoint_embed.unsqueeze(1).repeat(
             1, bs, 1)  # [num_query, dim] -> [num_query, bs, dim]
         mask = mask.view(bs, -1)  # [bs, h, w] -> [bs, h*w]
         memory = self.encoder(
@@ -787,14 +798,22 @@ class DABTransformer(BaseModule):
             value=None,
             query_pos=pos_embed,
             query_key_padding_mask=mask)
-        target = torch.zeros_like(query_embed)
+        #target = torch.zeros_like(embedweight)
+        # query_embed = gen_sineembed_for_position(refpoint_embed)
+        num_queries = refpoint_embed.shape[0]
+        if self.num_patterns == 0:
+            target = torch.zeros(num_queries, bs, self.d_model, device=refpoint_embed.device)
+        else:
+            target = self.patterns.weight[:, None, None, :].repeat(1, num_queries, bs, 1).flatten(0,1)  # n_q*n_pat, bs, d_model
+            refpoint_embed = refpoint_embed.repeat(self.num_patterns, 1, 1)  # n_q*n_pat, bs, d_model
+            # import ipdb; ipdb.set_trace()
         # out_dec: [num_layers, num_query, bs, dim]
         out_dec,reference_points = self.decoder(
             query=target,
             key=memory,
             value=memory,
             key_pos=pos_embed,
-            query_pos=query_embed,
+            refpoints_unsigmoid=refpoint_embed,
             key_padding_mask=mask)
         out_dec = out_dec.transpose(1, 2)
         memory = memory.permute(1, 2, 0).reshape(bs, c, h, w)
@@ -944,6 +963,7 @@ class PMultiheadAttention(BaseModule):
                  dropout_layer=dict(type='Dropout', drop_prob=0.),
                  init_cfg=None,
                  batch_first=False,
+                 keep_query_pos=False,
                  **kwargs):
         super().__init__(init_cfg)
         if 'dropout' in kwargs:
@@ -971,7 +991,7 @@ class PMultiheadAttention(BaseModule):
         self.proj_drop = nn.Dropout(proj_drop)
         self.dropout_layer = build_dropout(
             dropout_layer) if dropout_layer else nn.Identity()
-
+        self.keep_query_pos = keep_query_pos
     @deprecated_api_warning({'residual': 'identity'},
                             cls_name='CMultiheadAttention')
     def forward(self,
@@ -1000,7 +1020,7 @@ class PMultiheadAttention(BaseModule):
 
         k_pos = self.ca_kpos_proj(key_pos)
 
-        if is_first:
+        if is_first or self.keep_query_pos:
             q_pos = self.ca_qpos_proj(query_pos)
             q = q_content + q_pos
             k = k_content + k_pos
