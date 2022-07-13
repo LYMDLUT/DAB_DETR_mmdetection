@@ -48,6 +48,7 @@ model = dict(
                 num_layers=6,
                 d_model=256,
                 query_dim=4,
+                iter_update=True,
                 keep_query_pos=False,
                 query_scale_type='cond_elewise',
                 modulate_hw_attn=True,

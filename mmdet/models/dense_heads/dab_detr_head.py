@@ -290,7 +290,7 @@ class DABDETRHead(AnchorFreeHead):
         # outs_dec: [nb_dec, bs, num_query, embed_dim]
         embedweight = self.refpoint_embed.weight
         outs_dec, _, reference = self.transformer(x, masks, embedweight,
-                                       pos_embed)
+                                       pos_embed,self.fc_reg,self.activate,self.reg_ffn)
         ##################
         reference_before_sigmoid = inverse_sigmoid(reference, 1e-3)
         outputs_coords = []

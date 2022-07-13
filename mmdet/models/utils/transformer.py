@@ -545,6 +545,7 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
                  return_intermediate=False,
                  d_model=256,
                  query_dim=2,
+                 iter_update=False,
                  keep_query_pos=False,
                  query_scale_type='cond_elewise',
                  modulate_hw_attn=True,
@@ -572,7 +573,7 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
         self.d_model = d_model
         self.modulate_hw_attn = modulate_hw_attn
         self.bbox_embed_diff_each_layer = bbox_embed_diff_each_layer
-
+        self.iter_update = iter_update
         ########################################################
         if post_norm_cfg is not None:
             self.post_norm = build_norm_layer(post_norm_cfg,
@@ -585,7 +586,7 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
             for layer_id in range(kwargs['num_layers'] - 1):
                 self.layers[layer_id + 1].ca_qpos_proj = None
 
-    def forward(self, query, *args, **kwargs):
+    def forward(self, query, fc_reg, activate, reg_ffn, *args, **kwargs):
         """Forward function for `TransformerDecoder`.
 
         Args:
@@ -607,7 +608,8 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
             return x
 
         intermediate = []
-        for layer_id,layer in enumerate(self.layers):
+        reference_point = []
+        for layer_id, layer in enumerate(self.layers):
             obj_center = reference_points[..., :self.query_dim]
             # get sine embedding for the query vector
             query_sine_embed = gen_sineembed_for_position(obj_center)
@@ -627,30 +629,29 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
                 query_sine_embed[..., self.d_model // 2:] *= (refHW_cond[..., 0] / obj_center[..., 2]).unsqueeze(-1)
                 query_sine_embed[..., :self.d_model // 2] *= (refHW_cond[..., 1] / obj_center[..., 3]).unsqueeze(-1)
 
-            #query = layer(query,  *args, **kwargs)
             query = layer(query, query_sine_embed,is_first=(layer_id == 0), query_pos=query_pos, *args, **kwargs)
             ########################################
-            # iter update
-            if self.bbox_embed is not None:
-                if self.bbox_embed_diff_each_layer:
-                    tmp = self.bbox_embed[layer_id](query)
+            if self.return_intermediate:
+                if self.post_norm is not None:
+                    intermediate.append(self.post_norm(query))
+                   # reference_point.append(reference_points.unsqueeze(0).transpose(1, 2))
                 else:
-                    tmp = self.bbox_embed(query)
-                # import ipdb; ipdb.set_trace()
-                tmp[..., :self.query_dim] += inverse_sigmoid(reference_points)
+                    intermediate.append(query)
+                   # reference_point.append(reference_points.unsqueeze(0).transpose(1, 2))
+            # iter update
+            if self.iter_update is not None:
+                if self.bbox_embed_diff_each_layer:
+                    tmp = fc_reg[layer_id](activate(reg_ffn[layer_id](intermediate[layer_id])))
+                else:
+                    tmp = fc_reg(activate(reg_ffn(intermediate[layer_id])))
+                #import ipdb; ipdb.set_trace()
+                tmp[..., :self.query_dim] += inverse_sigmoid(reference_points, 1e-3)
                 new_reference_points = tmp[..., :self.query_dim].sigmoid()
                 if layer_id != self.num_layers - 1:
                     ref_points.append(new_reference_points)
                 reference_points = new_reference_points.detach()
-
             ########################################
-
-            if self.return_intermediate:
-                if self.post_norm is not None:
-                    intermediate.append(self.post_norm(query))
-                else:
-                    intermediate.append(query)
-        return torch.stack(intermediate), reference_points.unsqueeze(0).transpose(1, 2)
+        return torch.stack(intermediate), torch.stack(ref_points).transpose(1, 2)
 
 @TRANSFORMER_LAYER.register_module()
 class DABDetrTransformerDecoderLayer(BaseTransformerLayer):
@@ -809,7 +810,7 @@ class DABTransformer(BaseModule):
                 xavier_init(m, distribution='uniform')
         self._is_init = True
 
-    def forward(self, x, mask, refpoint_embed, pos_embed):
+    def forward(self, x, mask, refpoint_embed, pos_embed,fc_reg, activate, reg_ffn):
         """Forward function for `Transformer`.
 
         Args:
@@ -862,7 +863,10 @@ class DABTransformer(BaseModule):
             key_pos=pos_embed,
             #query_pos=query_embed,
             refpoints_unsigmoid=refpoint_embed,
-            key_padding_mask=mask)
+            key_padding_mask=mask,
+            fc_reg=fc_reg,
+            activate=activate,
+            reg_ffn=reg_ffn)
         out_dec = out_dec.transpose(1, 2)
         memory = memory.permute(1, 2, 0).reshape(bs, c, h, w)
         return out_dec, memory, reference_points
@@ -1505,7 +1509,6 @@ class DetrTransformerDecoder(TransformerLayerSequence):
                 else:
                     intermediate.append(query)
         return torch.stack(intermediate)
-
 
 @TRANSFORMER.register_module()
 class Transformer(BaseModule):
