@@ -608,7 +608,6 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
             return x
 
         intermediate = []
-        reference_point = []
         for layer_id, layer in enumerate(self.layers):
             obj_center = reference_points[..., :self.query_dim]
             # get sine embedding for the query vector
@@ -634,10 +633,8 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
             if self.return_intermediate:
                 if self.post_norm is not None:
                     intermediate.append(self.post_norm(query))
-                   # reference_point.append(reference_points.unsqueeze(0).transpose(1, 2))
                 else:
                     intermediate.append(query)
-                   # reference_point.append(reference_points.unsqueeze(0).transpose(1, 2))
             # iter update
             if self.iter_update is not None:
                 if self.bbox_embed_diff_each_layer:
@@ -795,6 +792,7 @@ class DABTransformer(BaseModule):
         super(DABTransformer, self).__init__(init_cfg=init_cfg)
         self.encoder = build_transformer_layer_sequence(encoder)
         self.decoder = build_transformer_layer_sequence(decoder)
+        self.d_model = d_model
         self.embed_dims = self.encoder.embed_dims
         self.num_patterns = num_patterns
         if not isinstance(num_patterns, int):
