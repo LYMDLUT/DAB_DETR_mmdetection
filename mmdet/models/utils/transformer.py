@@ -544,6 +544,7 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
                  post_norm_cfg=dict(type='LN'),
                  return_intermediate=False,
                  d_model=256,
+                 query_dim=2,
                  keep_query_pos=False,
                  query_scale_type='cond_elewise',
                  modulate_hw_attn=True,
@@ -551,17 +552,38 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
                  **kwargs):
 
         super(DABDetrTransformerDecoder, self).__init__(*args, **kwargs)
+        #########################################################
         assert query_scale_type in ['cond_elewise', 'cond_scalar', 'fix_elewise']
         self.return_intermediate = return_intermediate
+        self.query_dim = query_dim
+        assert query_scale_type in ['cond_elewise', 'cond_scalar', 'fix_elewise']
+        self.query_scale_type = query_scale_type
+        if query_scale_type == 'cond_elewise':
+            self.query_scale = MLP(d_model, d_model, d_model, 2)
+        elif query_scale_type == 'cond_scalar':
+            self.query_scale = MLP(d_model, d_model, 1, 2)
+        elif query_scale_type == 'fix_elewise':
+            self.query_scale = nn.Embedding(kwargs['num_layers'], d_model)
+        else:
+            raise NotImplementedError("Unknown query_scale_type: {}".format(query_scale_type))
+        self.ref_point_head = MLP(query_dim // 2 * d_model, d_model, d_model, 2)
+
+        self.bbox_embed = None
+        self.d_model = d_model
+        self.modulate_hw_attn = modulate_hw_attn
+        self.bbox_embed_diff_each_layer = bbox_embed_diff_each_layer
+
+        ########################################################
         if post_norm_cfg is not None:
             self.post_norm = build_norm_layer(post_norm_cfg,
                                               self.embed_dims)[1]
         else:
             self.post_norm = None
-        self.query_scale = MLP(d_model, d_model, d_model, 2)
-        self.ref_point_head = MLP(d_model, d_model, 2, 2)
-        for layer_id in range(kwargs['num_layers'] - 1):
-            self.layers[layer_id + 1].ca_qpos_proj = None
+        if modulate_hw_attn:
+            self.ref_anchor_head = MLP(d_model, d_model, 2, 2)
+        if not keep_query_pos:
+            for layer_id in range(kwargs['num_layers'] - 1):
+                self.layers[layer_id + 1].ca_qpos_proj = None
 
     def forward(self, query, *args, **kwargs):
         """Forward function for `TransformerDecoder`.
@@ -575,8 +597,8 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
                 return_intermediate is `False`, otherwise it has shape
                 [num_layers, num_query, bs, embed_dims].
         """
-        reference_points_before_sigmoid = self.ref_point_head(kwargs['query_pos'])  # [num_queries, batch_size, 2]
-        reference_points = reference_points_before_sigmoid.sigmoid().transpose(0, 1)
+        reference_points = kwargs['refpoints_unsigmoid'].sigmoid()  # [num_queries*num_pattern, batch_size, 4]
+        ref_points = [reference_points]
 
         if not self.return_intermediate:
             x = super().forward(query, *args, **kwargs)
@@ -586,24 +608,49 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
 
         intermediate = []
         for layer_id,layer in enumerate(self.layers):
-            obj_center = reference_points[..., :2].transpose(0, 1)
-            if layer_id == 0:
-                pos_transformation = 1
-            else:
-                pos_transformation = self.query_scale(query)
+            obj_center = reference_points[..., :self.query_dim]
             # get sine embedding for the query vector
             query_sine_embed = gen_sineembed_for_position(obj_center)
-            # apply transformation
-            query_sine_embed = query_sine_embed * pos_transformation
+            query_pos = self.ref_point_head(query_sine_embed)
+            if self.query_scale_type != 'fix_elewise':
+                if layer_id == 0:
+                    pos_transformation = 1
+                else:
+                    pos_transformation = self.query_scale(query)
+            else:
+                pos_transformation = self.query_scale.weight[layer_id]
+
+            query_sine_embed = query_sine_embed[...,:self.d_model] * pos_transformation
+            # modulated HW attentions
+            if self.modulate_hw_attn:
+                refHW_cond = self.ref_anchor_head(query).sigmoid()  # nq, bs, 2
+                query_sine_embed[..., self.d_model // 2:] *= (refHW_cond[..., 0] / obj_center[..., 2]).unsqueeze(-1)
+                query_sine_embed[..., :self.d_model // 2] *= (refHW_cond[..., 1] / obj_center[..., 3]).unsqueeze(-1)
 
             #query = layer(query,  *args, **kwargs)
-            query = layer(query, query_sine_embed,is_first=(layer_id == 0), *args, **kwargs)
+            query = layer(query, query_sine_embed,is_first=(layer_id == 0), query_pos=query_pos, *args, **kwargs)
+            ########################################
+            # iter update
+            if self.bbox_embed is not None:
+                if self.bbox_embed_diff_each_layer:
+                    tmp = self.bbox_embed[layer_id](query)
+                else:
+                    tmp = self.bbox_embed(query)
+                # import ipdb; ipdb.set_trace()
+                tmp[..., :self.query_dim] += inverse_sigmoid(reference_points)
+                new_reference_points = tmp[..., :self.query_dim].sigmoid()
+                if layer_id != self.num_layers - 1:
+                    ref_points.append(new_reference_points)
+                reference_points = new_reference_points.detach()
+
+            ########################################
+
             if self.return_intermediate:
                 if self.post_norm is not None:
                     intermediate.append(self.post_norm(query))
                 else:
                     intermediate.append(query)
-        return torch.stack(intermediate), reference_points
+        return torch.stack(intermediate), reference_points.unsqueeze(0).transpose(1, 2)
 
 @TRANSFORMER_LAYER.register_module()
 class DABDetrTransformerDecoderLayer(BaseTransformerLayer):
@@ -813,6 +860,7 @@ class DABTransformer(BaseModule):
             key=memory,
             value=memory,
             key_pos=pos_embed,
+            #query_pos=query_embed,
             refpoints_unsigmoid=refpoint_embed,
             key_padding_mask=mask)
         out_dec = out_dec.transpose(1, 2)
