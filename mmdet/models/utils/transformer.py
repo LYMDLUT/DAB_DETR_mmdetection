@@ -584,7 +584,7 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
             self.ref_anchor_head = MLP(d_model, d_model, 2, 2)
         if not keep_query_pos:
             for layer_id in range(kwargs['num_layers'] - 1):
-                self.layers[layer_id + 1].ca_qpos_proj = None
+                self.layers[layer_id + 1].attentions[1].ca_qpos_proj = None
 
     def forward(self, query, fc_reg, activate, reg_ffn, *args, **kwargs):
         """Forward function for `TransformerDecoder`.
@@ -1215,7 +1215,7 @@ class CDetrTransformerDecoder(TransformerLayerSequence):
         self.query_scale = MLP(d_model, d_model, d_model, 2)
         self.ref_point_head = MLP(d_model, d_model, 2, 2)
         for layer_id in range(kwargs['num_layers'] - 1):
-            self.layers[layer_id + 1].ca_qpos_proj = None
+            self.layers[layer_id + 1].attentions[1].ca_qpos_proj = None
 
     def forward(self, query, *args, **kwargs):
         """Forward function for `TransformerDecoder`.
