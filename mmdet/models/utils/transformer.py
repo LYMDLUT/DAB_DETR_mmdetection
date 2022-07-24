@@ -951,7 +951,7 @@ class FMultiheadAttention(BaseModule):
         if identity is None:
             identity = query
         q_content = self.sa_qcontent_proj(query)
-        query_pos = self.sa_qpos_proj(query_pos)
+        q_pos = self.sa_qpos_proj(query_pos)
 
         k_content = self.sa_kcontent_proj(query)
         k_pos = self.sa_kpos_proj(query_pos)
@@ -960,8 +960,8 @@ class FMultiheadAttention(BaseModule):
         # num_queries, bs, n_model = q_content.shape
         # hw, _, _ = k_content.shape
 
-        q = q_content + query_pos
-        k = k_content + key_pos
+        q = q_content + q_pos
+        k = k_content + k_pos
 
         if self.batch_first:
             q = q.transpose(0, 1)
