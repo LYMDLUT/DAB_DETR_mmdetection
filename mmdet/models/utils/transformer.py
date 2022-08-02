@@ -638,9 +638,9 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
             # iter update
             if self.iter_update is not None:
                 if self.bbox_embed_diff_each_layer:
-                    tmp = fc_reg[layer_id](activate(reg_ffn[layer_id](intermediate[layer_id])))
+                    tmp = fc_reg[layer_id](activate(reg_ffn[layer_id](query)))
                 else:
-                    tmp = fc_reg(activate(reg_ffn(intermediate[layer_id])))
+                    tmp = fc_reg(activate(reg_ffn(query)))
                 #import ipdb; ipdb.set_trace()
                 tmp[..., :self.query_dim] += inverse_sigmoid(reference_points, 1e-3)
                 new_reference_points = tmp[..., :self.query_dim].sigmoid()
