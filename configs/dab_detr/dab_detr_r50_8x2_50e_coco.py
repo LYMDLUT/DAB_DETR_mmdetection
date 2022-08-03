@@ -73,7 +73,7 @@ model = dict(
                                      'ffn', 'norm')),
             )),
         positional_encoding=dict(
-            type='SinePositionalEncodingHW', temperatureH=10000,temperatureW=10000,num_feats=128, normalize=True),
+            type='SinePositionalEncodingHW', temperatureH=20,temperatureW=20,num_feats=128, normalize=True),
         loss_cls=dict(
             type='FocalLoss',
             use_sigmoid=True,
@@ -89,7 +89,7 @@ model = dict(
             cls_cost=dict(type='FocalLossCost', weight=2.0),
             reg_cost=dict(type='BBoxL1Cost', weight=5.0, box_format='xywh'),
             iou_cost=dict(type='IoUCost', iou_mode='giou', weight=2.0))),
-    test_cfg=dict(max_per_img=100))
+    test_cfg=dict(max_per_img=300))
 img_norm_cfg = dict(
     mean=[123.675, 116.28, 103.53], std=[58.395, 57.12, 57.375], to_rgb=True)
 # train_pipeline, NOTE the img_scale and the Pad's size_divisor is different
@@ -154,7 +154,7 @@ test_pipeline = [
         ])
 ]
 data = dict(
-    samples_per_gpu=1,
+    samples_per_gpu=2,
     workers_per_gpu=2,
     train=dict(pipeline=train_pipeline),
     val=dict(pipeline=test_pipeline),
