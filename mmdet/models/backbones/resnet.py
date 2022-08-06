@@ -9,6 +9,7 @@ from torch.nn.modules.batchnorm import _BatchNorm
 
 from ..builder import BACKBONES
 from ..utils import ResLayer
+import torchvision
 from mmcv.cnn.bricks.registry import NORM_LAYERS
 
 
