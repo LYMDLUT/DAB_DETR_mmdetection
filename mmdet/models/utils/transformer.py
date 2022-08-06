@@ -1104,6 +1104,238 @@ class PMultiheadAttention(BaseModule):
         return identity + self.dropout_layer(self.proj_drop(out))
 
 
+      
+      
+
+
+@ATTENTION.register_module()
+class DFMultiheadAttention(BaseModule):
+    """A wrapper for ``torch.nn.MultiheadAttention``.
+
+    This module implements MultiheadAttention with identity connection,
+    and positional encoding  is also passed as input.
+
+    Args:
+        embed_dims (int): The embedding dimension.
+        num_heads (int): Parallel attention heads.
+        attn_drop (float): A Dropout layer on attn_output_weights.
+            Default: 0.0.
+        proj_drop (float): A Dropout layer after `nn.MultiheadAttention`.
+            Default: 0.0.
+        dropout_layer (obj:`ConfigDict`): The dropout_layer used
+            when adding the shortcut.
+        init_cfg (obj:`mmcv.ConfigDict`): The Config for initialization.
+            Default: None.
+        batch_first (bool): When it is True,  Key, Query and Value are shape of
+            (batch, n, embed_dim), otherwise (n, batch, embed_dim).
+             Default to False.
+    """
+
+    def __init__(self,
+                 embed_dims,
+                 num_heads,
+                 attn_drop=0.,
+                 proj_drop=0.,
+                 dropout_layer=dict(type='Dropout', drop_prob=0.),
+                 init_cfg=None,
+                 batch_first=False,
+                 **kwargs):
+        super().__init__(init_cfg)
+        if 'dropout' in kwargs:
+            warnings.warn(
+                'The arguments `dropout` in MultiheadAttention '
+                'has been deprecated, now you can separately '
+                'set `attn_drop`(float), proj_drop(float), '
+                'and `dropout_layer`(dict) ', DeprecationWarning)
+            attn_drop = kwargs['dropout']
+            dropout_layer['drop_prob'] = kwargs.pop('dropout')
+
+        # Decoder Self-Attention
+        self.sa_qcontent_proj = nn.Linear(embed_dims, embed_dims)
+        self.sa_qpos_proj = nn.Linear(embed_dims, embed_dims)
+        self.sa_kcontent_proj = nn.Linear(embed_dims, embed_dims)
+        self.sa_kpos_proj = nn.Linear(embed_dims, embed_dims)
+        self.sa_v_proj = nn.Linear(embed_dims, embed_dims)
+        self.self_attn = DMultiheadAttention(embed_dims, num_heads, attn_drop, vdim=embed_dims,**kwargs)
+
+        self.embed_dims = embed_dims
+        self.num_heads = num_heads
+
+        self.batch_first = batch_first
+        self.proj_drop = nn.Dropout(proj_drop)
+        self.dropout_layer = build_dropout(
+            dropout_layer) if dropout_layer else nn.Identity()
+
+    @deprecated_api_warning({'residual': 'identity'},
+                            cls_name='CMultiheadAttention')
+    def forward(self,
+                query,
+                key=None,
+                value=None,
+                identity=None,
+                query_pos=None,
+                key_pos=None,
+                attn_mask=None,
+                key_padding_mask=None,
+                **kwargs):
+        if identity is None:
+            identity = query
+        q_content = self.sa_qcontent_proj(query)
+        q_pos = self.sa_qpos_proj(query_pos)
+
+        k_content = self.sa_kcontent_proj(query)
+        k_pos = self.sa_kpos_proj(query_pos)
+        v = self.sa_v_proj(query)
+
+        # num_queries, bs, n_model = q_content.shape
+        # hw, _, _ = k_content.shape
+
+        q = q_content + q_pos
+        k = k_content + k_pos
+
+        if self.batch_first:
+            q = q.transpose(0, 1)
+            k = k.transpose(0, 1)
+            v = v.transpose(0, 1)
+
+        out = self.self_attn(
+            query=q,
+            key=k,
+            value=v,
+            attn_mask=attn_mask,
+            key_padding_mask=key_padding_mask)[0]
+
+        if self.batch_first:
+            out = out.transpose(0, 1)
+
+        return identity + self.dropout_layer(self.proj_drop(out))
+
+
+
+@ATTENTION.register_module()
+class DPMultiheadAttention(BaseModule):
+    """A wrapper for ``torch.nn.MultiheadAttention``.
+
+    This module implements MultiheadAttention with identity connection,
+    and positional encoding  is also passed as input.
+
+    Args:
+        embed_dims (int): The embedding dimension.
+        num_heads (int): Parallel attention heads.
+        attn_drop (float): A Dropout layer on attn_output_weights.
+            Default: 0.0.
+        proj_drop (float): A Dropout layer after `nn.MultiheadAttention`.
+            Default: 0.0.
+        dropout_layer (obj:`ConfigDict`): The dropout_layer used
+            when adding the shortcut.
+        init_cfg (obj:`mmcv.ConfigDict`): The Config for initialization.
+            Default: None.
+        batch_first (bool): When it is True,  Key, Query and Value are shape of
+            (batch, n, embed_dim), otherwise (n, batch, embed_dim).
+             Default to False.
+    """
+
+    def __init__(self,
+                 embed_dims,
+                 num_heads,
+                 attn_drop=0.,
+                 proj_drop=0.,
+                 dropout_layer=dict(type='Dropout', drop_prob=0.),
+                 init_cfg=None,
+                 batch_first=False,
+                 keep_query_pos=False,
+                 **kwargs):
+        super().__init__(init_cfg)
+        if 'dropout' in kwargs:
+            warnings.warn(
+                'The arguments `dropout` in MultiheadAttention '
+                'has been deprecated, now you can separately '
+                'set `attn_drop`(float), proj_drop(float), '
+                'and `dropout_layer`(dict) ', DeprecationWarning)
+            attn_drop = kwargs['dropout']
+            dropout_layer['drop_prob'] = kwargs.pop('dropout')
+
+        # Decoder Cross-Attention
+        self.ca_qcontent_proj = nn.Linear(embed_dims, embed_dims)
+        self.ca_qpos_proj = nn.Linear(embed_dims, embed_dims)
+        self.ca_kcontent_proj = nn.Linear(embed_dims, embed_dims)
+        self.ca_kpos_proj = nn.Linear(embed_dims, embed_dims)
+        self.ca_v_proj = nn.Linear(embed_dims, embed_dims)
+        self.ca_qpos_sine_proj = nn.Linear(embed_dims, embed_dims)
+        self.cross_attn = DMultiheadAttention(embed_dims * 2, num_heads, attn_drop, vdim=embed_dims,**kwargs)
+
+        self.embed_dims = embed_dims
+        self.num_heads = num_heads
+
+        self.batch_first = batch_first
+        self.proj_drop = nn.Dropout(proj_drop)
+        self.dropout_layer = build_dropout(
+            dropout_layer) if dropout_layer else nn.Identity()
+        self.keep_query_pos = keep_query_pos
+    @deprecated_api_warning({'residual': 'identity'},
+                            cls_name='CMultiheadAttention')
+    def forward(self,
+                query,
+                key=None,
+                value=None,
+                identity=None,
+                query_pos=None,
+                key_pos=None,
+                attn_mask=None,
+                key_padding_mask=None,
+                query_sine_embed=None,
+                is_first=None,
+                **kwargs):
+        if identity is None:
+            identity = query
+        # ========== Begin of Cross-Attention =============
+        # Apply projections here
+        # shape: num_queries x batch_size x 256
+        q_content = self.ca_qcontent_proj(query)
+        k_content = self.ca_kcontent_proj(key)
+        v = self.ca_v_proj(key)
+
+        num_queries, bs, n_model = q_content.shape
+        hw, _, _ = k_content.shape
+
+        k_pos = self.ca_kpos_proj(key_pos)
+
+        if is_first or self.keep_query_pos:
+            q_pos = self.ca_qpos_proj(query_pos)
+            q = q_content + q_pos
+            k = k_content + k_pos
+        else:
+            #self.ca_qpos_proj=None
+            q = q_content
+            k = k_content
+
+        q = q.view(num_queries, bs, self.num_heads, n_model//self.num_heads)
+        query_sine_embed = self.ca_qpos_sine_proj(query_sine_embed)
+        query_sine_embed = query_sine_embed.view(num_queries, bs, self.num_heads, n_model//self.num_heads)
+        q = torch.cat([q, query_sine_embed], dim=3).view(num_queries, bs, n_model * 2)
+        k = k.view(hw, bs, self.num_heads, n_model//self.num_heads)
+        k_pos = k_pos.view(hw, bs, self.num_heads, n_model//self.num_heads)
+        k = torch.cat([k, k_pos], dim=3).view(hw, bs, n_model * 2)
+
+        if self.batch_first:
+            q = q.transpose(0, 1)
+            k = k.transpose(0, 1)
+            v = v.transpose(0, 1)
+
+        out = self.cross_attn(
+            query=q,
+            key=k,
+            value=v,
+            attn_mask=attn_mask,
+            key_padding_mask=key_padding_mask)[0]
+        #out=torch.load("D:\\tgt22.pth").cuda()
+        #torch.save(out.cpu(),"D:\\eee.pth")
+        if self.batch_first:
+            out = out.transpose(0, 1)
+
+        return identity + self.dropout_layer(self.proj_drop(out))
+
+      
 
 @TRANSFORMER.register_module()
 class CTransformer(BaseModule):
