@@ -37,7 +37,7 @@ model = dict(
                         embed_dims=256,
                         feedforward_channels=2048,
                         num_fcs=2,
-                        ffn_drop=0.1,
+                        ffn_drop=0.0,
                         act_cfg=dict(type='PReLU'),
                     ),
                     attn_cfgs=[
@@ -45,7 +45,7 @@ model = dict(
                             type='MultiheadAttention',
                             embed_dims=256,
                             num_heads=8,
-                            dropout=0.1)
+                            dropout=0.0)
                     ],
                     feedforward_channels=2048,
                     ffn_dropout=0.0,
