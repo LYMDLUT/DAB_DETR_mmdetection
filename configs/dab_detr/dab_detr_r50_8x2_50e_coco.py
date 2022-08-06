@@ -9,7 +9,8 @@ model = dict(
         num_stages=4,
         out_indices=(3, ),
         frozen_stages=1,
-        norm_cfg=dict(type='BN', requires_grad=False),
+       # norm_cfg=dict(type='BN', requires_grad=False),
+        norm_cfg=dict(type='FrozenBatchNorm', requires_grad=False),
         norm_eval=True,
         style='pytorch',
         init_cfg=dict(type='Pretrained', checkpoint='torchvision://resnet50')),
@@ -19,7 +20,7 @@ model = dict(
         query_dim=4,
         random_refpoints_xy=False,
         bbox_embed_diff_each_layer=False,
-        num_classes=80,
+        num_classes=91,
         in_channels=2048,
         transformer=dict(
             type='DABTransformer',
@@ -31,7 +32,14 @@ model = dict(
                 d_model=256,
                 transformerlayers=dict(
                     type='BaseTransformerLayer',
-                    act_cfg=dict(type='PReLU', inplace=True),
+                    ffn_cfgs=dict(
+                        type='FFN',
+                        embed_dims=256,
+                        feedforward_channels=2048,
+                        num_fcs=2,
+                        ffn_drop=0.1,
+                        act_cfg=dict(type='PReLU'),
+                    ),
                     attn_cfgs=[
                         dict(
                             type='MultiheadAttention',
@@ -40,7 +48,7 @@ model = dict(
                             dropout=0.1)
                     ],
                     feedforward_channels=2048,
-                    ffn_dropout=0.1,
+                    ffn_dropout=0.0,
                     operation_order=('self_attn', 'norm', 'ffn', 'norm'))),
             decoder=dict(
                 type='DABDetrTransformerDecoder',
@@ -55,20 +63,27 @@ model = dict(
                 bbox_embed_diff_each_layer=False,
                 transformerlayers=dict(
                     type='DABDetrTransformerDecoderLayer',
-                    act_cfg=dict(type='PReLU', inplace=True),
+                    ffn_cfgs=dict(
+                        type='FFN',
+                        embed_dims=256,
+                        feedforward_channels=2048,
+                        num_fcs=2,
+                        ffn_drop=0.0,
+                        act_cfg=dict(type='PReLU'),
+                    ),
                     attn_cfgs=[
                         dict(
-                        type='FMultiheadAttention',
+                        type='DFMultiheadAttention',
                         embed_dims=256,
                         num_heads=8,
-                        dropout=0.1),
+                        dropout=0.0),
                         dict(
-                        type='PMultiheadAttention',
+                        type='DPMultiheadAttention',
                         embed_dims=256,
                         num_heads=8,
-                        dropout=0.1)],
+                        dropout=0.0)],
                     feedforward_channels=2048,
-                    ffn_dropout=0.1,
+                    ffn_dropout=0.0,
                     operation_order=('self_attn', 'norm', 'cross_attn', 'norm',
                                      'ffn', 'norm')),
             )),
@@ -79,7 +94,7 @@ model = dict(
             use_sigmoid=True,
             gamma=2.0,
             alpha=0.25,
-            loss_weight=2.0),
+            loss_weight=1.0),
         loss_bbox=dict(type='L1Loss', loss_weight=5.0),
         loss_iou=dict(type='GIoULoss', loss_weight=2.0)),
     # training and testing settings
@@ -167,6 +182,7 @@ optimizer = dict(
     paramwise_cfg=dict(
         custom_keys={'backbone': dict(lr_mult=0.1, decay_mult=1.0)}))
 optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2))
+#optimizer_config = dict(grad_clip=dict(max_norm=0.1, norm_type=2),detect_anomalous_params=True)
 # learning policy
 lr_config = dict(policy='step', step=[40])
 runner = dict(type='EpochBasedRunner', max_epochs=50)
