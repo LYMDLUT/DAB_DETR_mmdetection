@@ -9,7 +9,10 @@ from torch.nn.modules.batchnorm import _BatchNorm
 
 from ..builder import BACKBONES
 from ..utils import ResLayer
+from mmcv.cnn.bricks.registry import NORM_LAYERS
 
+
+NORM_LAYERS.register_module('FrozenBatchNorm', module=torchvision.ops.misc.FrozenBatchNorm2d)
 
 class BasicBlock(BaseModule):
     expansion = 1
