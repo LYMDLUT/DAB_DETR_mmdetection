@@ -368,18 +368,25 @@ class DABDETRHead(AnchorFreeHead):
         loss_dict['loss_cls'] = losses_cls[-1]
         loss_dict['loss_bbox'] = losses_bbox[-1]
         loss_dict['loss_iou'] = losses_iou[-1]
-        loss_dict['loss_xy'] = losses_bbox_xy[-1]
-        loss_dict['loss_hw'] = losses_bbox_hw[-1]
+#         loss_dict['loss_xy'] = losses_bbox_xy[-1]
+#         loss_dict['loss_hw'] = losses_bbox_hw[-1]
         # loss from other decoder layers
         num_dec_layer = 0
-        for loss_cls_i, loss_bbox_i, loss_iou_i ,loss_bbox_xy_i, loss_bbox_hw_i in zip(losses_cls[:-1],
-                                                       losses_bbox[:-1],losses_iou[:-1],losses_bbox_xy[:-1],losses_bbox_hw[:-1]):
+#         for loss_cls_i, loss_bbox_i, loss_iou_i ,loss_bbox_xy_i, loss_bbox_hw_i in zip(losses_cls[:-1],
+#                                                        losses_bbox[:-1],losses_iou[:-1],losses_bbox_xy[:-1],losses_bbox_hw[:-1]):
+#             loss_dict[f'd{num_dec_layer}.loss_cls'] = loss_cls_i
+#             loss_dict[f'd{num_dec_layer}.loss_bbox'] = loss_bbox_i
+#             loss_dict[f'd{num_dec_layer}.loss_iou'] = loss_iou_i
+#             loss_dict[f'd{num_dec_layer}.loss_bbox_xy'] = loss_bbox_xy_i
+#             loss_dict[f'd{num_dec_layer}.loss_bbox_hw'] = loss_bbox_hw_i
+#             num_dec_layer += 1
+        for loss_cls_i, loss_bbox_i, loss_iou_i in zip(losses_cls[:-1],
+                                                       losses_bbox[:-1],
+                                                       losses_iou[:-1]):
             loss_dict[f'd{num_dec_layer}.loss_cls'] = loss_cls_i
             loss_dict[f'd{num_dec_layer}.loss_bbox'] = loss_bbox_i
             loss_dict[f'd{num_dec_layer}.loss_iou'] = loss_iou_i
-            loss_dict[f'd{num_dec_layer}.loss_bbox_xy'] = loss_bbox_xy_i
-            loss_dict[f'd{num_dec_layer}.loss_bbox_hw'] = loss_bbox_hw_i
-            num_dec_layer += 1
+            num_dec_layer += 1                     
         return loss_dict
 
     def loss_single(self,
