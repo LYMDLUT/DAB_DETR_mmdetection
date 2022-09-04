@@ -584,7 +584,7 @@ class DABDetrTransformerDecoder(TransformerLayerSequence):
             self.ref_anchor_head = MLP(d_model, d_model, 2, 2)
         if not keep_query_pos:
             for layer_id in range(kwargs['num_layers'] - 1):
-                self.layers[layer_id + 1].ca_qpos_proj = None
+                self.layers[layer_id + 1].attentions[1].ca_qpos_proj = None
 
     def forward(self, query, fc_reg, activate, reg_ffn, *args, **kwargs):
         """Forward function for `TransformerDecoder`.
@@ -875,9 +875,6 @@ class DABTransformer(BaseModule):
 
 
 
-
-
-
 @ATTENTION.register_module()
 class FMultiheadAttention(BaseModule):
     """A wrapper for ``torch.nn.MultiheadAttention``.
@@ -951,7 +948,7 @@ class FMultiheadAttention(BaseModule):
         if identity is None:
             identity = query
         q_content = self.sa_qcontent_proj(query)
-        query_pos = self.sa_qpos_proj(query_pos)
+        q_pos = self.sa_qpos_proj(query_pos)
 
         k_content = self.sa_kcontent_proj(query)
         k_pos = self.sa_kpos_proj(query_pos)
@@ -960,8 +957,8 @@ class FMultiheadAttention(BaseModule):
         # num_queries, bs, n_model = q_content.shape
         # hw, _, _ = k_content.shape
 
-        q = q_content + query_pos
-        k = k_content + key_pos
+        q = q_content + q_pos
+        k = k_content + k_pos
 
         if self.batch_first:
             q = q.transpose(0, 1)
@@ -1185,7 +1182,10 @@ class CTransformer(BaseModule):
             key_padding_mask=mask)
         out_dec = out_dec.transpose(1, 2)
         memory = memory.permute(1, 2, 0).reshape(bs, c, h, w)
-        return out_dec, memory,reference_points
+        return out_dec, memory, reference_points
+
+
+
 
 
 @TRANSFORMER_LAYER_SEQUENCE.register_module()
@@ -1215,7 +1215,7 @@ class CDetrTransformerDecoder(TransformerLayerSequence):
         self.query_scale = MLP(d_model, d_model, d_model, 2)
         self.ref_point_head = MLP(d_model, d_model, 2, 2)
         for layer_id in range(kwargs['num_layers'] - 1):
-            self.layers[layer_id + 1].ca_qpos_proj = None
+            self.layers[layer_id + 1].attentions[1].ca_qpos_proj = None
 
     def forward(self, query, *args, **kwargs):
         """Forward function for `TransformerDecoder`.
@@ -1258,6 +1258,8 @@ class CDetrTransformerDecoder(TransformerLayerSequence):
                 else:
                     intermediate.append(query)
         return torch.stack(intermediate), reference_points
+
+
 
 @TRANSFORMER_LAYER.register_module()
 class CDetrTransformerDecoderLayer(BaseTransformerLayer):
